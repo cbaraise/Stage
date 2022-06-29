@@ -1,0 +1,180 @@
+#chargement des algorithmes de la boite à outils
+import processing 
+# chargement des méthodes spécifiques aux projets QGIS
+from qgis.core import QgsProject
+import numpy as np
+import pandas as pd
+import uuid
+from datetime import datetime
+
+def fTraiteLigne(contenuCel, oPosCol ): # oPoscol[] correspond à [0:flag , 1:X, 2:Y , 3:Z1 , 4:Z2 , 5:P]
+    lValX=0
+    lValY=0
+    lValZ=0
+    lValP=0
+    PremierZ=False 
+    PremierP=False
+    if oPosColonnes[0]==0 : #flag False: tant que X et Y n'ont pa été trouvés Poscol[0] reste à 0
+        #Recherche x, y , z et p
+     
+        for i in range (len(contenuCel)):
+            sCell=str(contenuCel[i]) #contenu des cellules
+            if "X" == sCell[0].upper():
+                oPosCol[1]=i #on récupère le rang de X
+            if "Y" ==  sCell[0].upper()  :
+              oPosCol[2]=i#on récupère le rang de Y
+            if "P" ==  sCell[0].upper():
+                
+                 #on récupère le rang de P
+                
+                if PremierP == False:
+                    oPosCol[5]=i
+                    PremierP=True
+            if "Z" == sCell[0].upper()  :
+                if PremierZ==False : #Si un premier Z est trouver alors Vrai
+                    oPosCol[3]=i #on récupère le rang du 1er Z
+                    PremierZ=True
+                else :                 #Sinon Z2 prend la deuxième valeur de i
+                    oPosCol[4]=i #on récupère le rang du 2eme Z
+        if oPosCol[1]!=99 and oPosCol[2]!=0  : #si X et Y trouvé alors on passe oPoscol[1] à 1
+            oPosCol[0]=1
+            
+        else: #sinon on remet à 99 X et Y à 0
+            oPosCol[1]=99
+            oPosCol[2]=0 
+    else: # flag True :X et Y (et Z1 et Z2 ou la profondeur) trouvés on les passes donc dans des tableau 
+        if  pd.isnull([contenuCel[oPosCol[1]]]) == False :#conditons qui enlève les nan (valeur vide ou null)
+            lValX=str(contenuCel[oPosCol[1]]).replace(',','.')
+         
+        if  pd.isnull([contenuCel[oPosCol[2]]]) == False :#conditons qui enlève les nan (valeur vide ou null)
+            lValY=str(contenuCel[oPosCol[2]]).replace(',','.')    
+        if oPosCol[4] == 0: #si Z2 non trouvé on prend Z1
+            if pd.isnull((contenuCel[oPosCol[3]]))  == False:
+                if oPosCol[3] !=0:
+                    
+                    lValZ=str(contenuCel[oPosCol[3]]).replace(',','.')
+        else:
+            if pd.isnull((contenuCel[oPosCol[4]]))  == False:
+               
+                lValZ=str(contenuCel[oPosCol[4]]).replace(',','.')  
+        if oPosCol[3]!=0 and oPosCol[4] !=0:
+            if pd.isnull((contenuCel[oPosCol[3]])) == False and pd.isnull((contenuCel[oPosCol[4]]))  == False:
+              #conditons qui enlève les nan (valeur vide ou null)
+                try:
+                    
+                    listZ1=float(contenuCel[oPosCol[3]].replace(',','.'))
+                    listZ2=float(contenuCel[oPosCol[4]].replace(',','.'))
+                except AttributeError:
+                    listZ1=float(str(contenuCel[oPosCol[3]]).replace(',','.'))
+                    listZ2=float(str(contenuCel[oPosCol[4]]).replace(',','.'))
+                try:
+                    lValP =(round(abs(listZ1-listZ2),2))
+                except ValueError:
+                    ValP=0           
+                #Z1 -Z2 = P
+        else:                                          #sinon si P existe on prend P
+            if oPosCol[5] != 0: #si la postion de P différent de 0
+                lValP=str(contenuCel[oPosCol[5]]).replace(',','.') 
+    return oPosCol , lValX , lValY ,lValZ, lValP  #renvoi les valeurs x, y , z et p
+#-----------------------------------------------------------------------------------------------------------------
+    
+#procédure qui envoie les valeurs dans la table d'attribut
+def ProcedCouche(couche ,uid, X , Y ,Z ,P, url , date , dateUpdate):
+     user= QgsExpressionContextUtils.globalScope().variable('otqgsuser')
+     feat = QgsFeature(couche.fields())
+     feat.setAttribute('pl_code',uid)
+     feat.setAttribute('pl_x', X)
+     feat.setAttribute('pl_y', Y)
+     feat.setAttribute('pl_z', Z )
+     feat.setAttribute('pl_charge', P)
+     feat.setAttribute('pl_source', url)
+     feat.setAttribute('pl_creadat', date)
+     feat.setAttribute('pl_majdate', dateUpdate)
+     feat.setAttribute('pl_majsrc', user)
+     feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(X,Y)))
+     (res, outFeats) = couche.dataProvider().addFeatures([feat])
+   
+#--------------------------------------------Début programme Principale-------------------------------------------------
+
+    
+project = QgsProject.instance()
+layers = project.mapLayers()
+uSource=""
+coolayers = project.mapLayersByName('t_otdc_ls')
+cooagreglayers = project.mapLayersByName('Points levés [t_an_point_leve]')
+cooagreg=cooagreglayers[0]
+tVal=[]
+datetime.now()
+datetime.now().time()
+#--Liste qui stock toute les valeur de X , Y ,Z et P pour un fichier XlsX--
+
+for feature in coolayers[0].getFeatures('true'):
+        uSource="W:/SIG/dbwork/ct_anfi/"+feature.attribute('dc_path')
+       
+        if "COO" in uSource and "archive" not in uSource:
+            #----------filtrage fichier: Début-------------------
+            if ".csv" in uSource and "~$" not in uSource :# si c'est un fichier .csv 
+
+                try:
+              
+                    dv = pd.read_csv(uSource , header=None , delimiter=';')
+                except :
+                    pass
+                try:
+                    dv = pd.read_csv(uSource , encoding = "ISO-8859-1", header=None , delimiter=';')
+                except :
+                    iface.messageBar().pushMessage("AnjouNumTools", "un Fichier csv  n'a pas pue être traité  !", level=Qgis.Critical, duration=5)
+                    continue
+                oDimensionLigne=dv.shape[0] #renvoi les dimensions du data frame (Ligne/Colonne)   
+                oPosColonnes =[0, 99, 0, 0, 0 ,0] #stock [flag,X ,Y,Z1,Z2,Profondeur ]
+                #on met oPosColonnes[1] à 99 car le rang de X peut être à 0
+                for i in range (0,oDimensionLigne): #parcour le nombre de ligne de la feuille
+                    oCellContent=dv.iloc[i].values #recupère la valeur de la cellule
+                    oPosColonnes,lValeurX ,lValeurY , lValeurZ , lValeurP  = fTraiteLigne(oCellContent, oPosColonnes )
+                    if oPosColonnes[0]==1 and lValeurX !=0 : #si X et Y on été trouvé dans fTraiteLigne
+                            tVal.append([lValeurX,lValeurY,lValeurZ,lValeurP,uSource])
+                oPosColonnes =[0, 99, 0, 0, 0 ,0] 
+                
+            if ".xlsx" in uSource and "~$" not in uSource : # si c'est un fichier .xlsx                     
+                try:
+                    odfFeuilles=pd.ExcelFile(uSource).sheet_names #lecture du fichier Xlsx avec pandas
+                except:
+                    iface.messageBar().pushMessage("AnjouNumTools", " un Fichier Xslx n'a pas pue être traité !", level=Qgis.Critical, duration=5)
+                    continue
+                oPosColonnes =[0, 99, 0, 0, 0,0]#stock la postion dans le data frame [flag,X ,Y,Z1,Z2,Profondeur ]
+                #on met oPosColonnes[1] à 99 car la postion des données de X peut être à 0
+                for iFeuille in range(len(odfFeuilles)): #Parcour chaque feuilles du excel 
+                    try:
+                        oDataFrame = pd.read_excel(uSource, sheet_name=iFeuille, header=None) #methode pandas permettant de lire un fichier xlsx
+                       
+                    except:
+                        iface.messageBar().pushMessage("AnjouNumTools", "une feuille Xlsx  n'a pas pue être traité !", level=Qgis.Critical, duration=5)
+                        continue 
+                    
+                    oDimensionLigne=oDataFrame.shape[0]#Objet QGIS qui récupère le nombre de ligne 
+                    for i in range (0,oDimensionLigne): #on parcour la valeur des cellules ligne par ligne
+                        oCellContent=oDataFrame.iloc[i].values #'df.iloc' objet de panda qui récupère les valeurs des cellules dans le dataframe
+                        oPosColonnes,lValeurX , lValeurY , lValeurZ , lValeurP = fTraiteLigne(oCellContent, oPosColonnes)
+                        if oPosColonnes[0]==1 and lValeurX !=0 : #si X et Y on été trouvé dans fTraiteLigne
+                            tVal.append([lValeurX,lValeurY,lValeurZ,lValeurP,uSource])
+                                
+                               
+                    oPosColonnes =[0, 99, 0, 0, 0, 0]
+
+for i in range(len(tVal)): #boucle dont i parcour la liste des valeurs de X ,Y ,Z*
+    try:
+        float(tVal[i][3])
+       
+    except:
+        tVal[i][3]=0
+   
+    try:
+        float(tVal[i][2])
+       
+    except:
+        tVal[i][2]=0
+        
+#        continue 
+    ProcedCouche(cooagreg,str(uuid.uuid4()),float(tVal[i][0]),float(tVal[i][1]),tVal[i][2], float(tVal[i][3]), tVal[i][4] , str(datetime.now()),str(datetime.now()))#renvoie les valeurs de X ,Y, Z et P à la procédure ProcedCouche pour un fichier csv
+
+iface.messageBar().pushMessage("AnjouNumTools", "Chargement réussi !", level=Qgis.Success, duration=5)
